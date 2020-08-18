@@ -4,7 +4,7 @@ Done with compute shaders in Unity.
 
 Skyboxes need to be imported from asset store for this to work properly.
 
-![Example image](/Example.png "Example image")
+![Example image](/ChristianPisani/RayTracer/blob/master/Example.PNG?raw=false "Example image")
 
 ### Assets used:
 * https://assetstore.unity.com/packages/2d/textures-materials/sky/skybox-series-free-103633
