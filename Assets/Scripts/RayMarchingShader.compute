@@ -1,0 +1,259 @@
+﻿#pragma kernel CSMain
+
+RWTexture2D<float4> Result;
+
+float4x4 _CameraToWorld;
+float4x4 _CameraInverseProjection;
+
+Texture2D<float4> _SkyboxTexture;
+SamplerState sampler_SkyboxTexture;
+
+static const float PI = 3.14159265f;
+
+static const int _MaxMarchingSteps = 100;
+
+static const float _SurfaceDistance = 0.001f;
+static const float _MinDistance = 0.0f;
+static const float _MaxDistance = 100.0f;
+
+float4 _DirectionalLight;
+float3 _DirectionalLightColor;
+float _SoftShadowStrength;
+
+float3 _Albedo;
+float _Specular;
+
+struct Ray {
+	float3 origin;
+	float3 direction;
+	float3 energy;
+};
+
+struct RayHit {
+	float3 position;
+	float3 normal;
+	float distance;
+	float3 specular;
+	float3 albedo;
+};
+
+struct Sphere {
+	float3 position;
+	float radius;
+	float3 albedo;
+	float3 specular;
+};
+
+float SphereSDF(float3 position, Sphere sphere) {
+	return distance(position, sphere.position) - sphere.radius;
+}
+
+float BoxSDF(float3 p)
+{
+	float3 b = float3(10, 2, 10);
+
+	float3 q = abs(p) - b;
+	return length(max(q, 0.0f)) + min(max(q.x, max(q.y, q.z)), 0.0);
+}
+
+
+float BoundingBoxSDF(float3 p)
+{
+	float3 b = float3(2, 2, 4);
+	float e = 0.1f;
+
+	p = abs(p) - b;
+	float3 q = abs(p + e) - e;
+	return min(min(
+		length(max(float3(p.x, q.y, q.z), 0.0)) + min(max(p.x, max(q.y, q.z)), 0.0),
+		length(max(float3(q.x, p.y, q.z), 0.0)) + min(max(q.x, max(p.y, q.z)), 0.0)),
+		length(max(float3(q.x, q.y, p.z), 0.0)) + min(max(q.x, max(q.y, p.z)), 0.0));
+}
+
+float intersectSDF(float distA, float distB) {
+	return max(distA, distB);
+}
+
+float unionSDF(float distA, float distB) {
+	return min(distA, distB);
+}
+
+float differenceSDF(float distA, float distB) {
+	return max(distA, -distB);
+}
+
+float SceneSDF(float3 p) {
+	Sphere sphere;
+	float sphereDist = 3;
+	sphere.position = float3(0, 0, 0);
+	sphere.radius = 1;
+
+	float sdf = SphereSDF(p, sphere);
+
+	for (int x = 0; x < 4; x++) {
+		for (int y = 0; y < 2; y++) {
+			for (int z = 0; z < 4; z++) {
+				sphere.position = float3(x * sphereDist, y * sphereDist, z * sphereDist);
+
+				sdf = unionSDF(sdf, SphereSDF(p, sphere));
+			}
+		}
+	}
+
+	return unionSDF(sdf, BoxSDF(p));
+}
+
+Ray CreateRay(float3 origin, float3 direction) {
+	Ray ray;
+
+	ray.origin = origin;
+	ray.direction = direction;
+	ray.energy = float3(1.0f, 1.0f, 1.0f);
+
+	return ray;
+}
+
+RayHit CreateHit() {
+	RayHit hit;
+	hit.position = float3(0, 0, 0);
+	hit.distance = 1.#INF;
+	hit.normal = float3(0, 0, 0);
+	hit.albedo = float3(0, 0, 0);
+	hit.specular = float3(0, 0, 0);
+	return hit;
+}
+
+Ray CreateCameraRay(float2 uv) {
+	float3 origin = mul(_CameraToWorld, float4(0.0f, 0.0f, 0.0f, 1.0f)).xyz;
+
+	float3 direction = mul(_CameraInverseProjection, float4(uv, 0.0f, 1.0f)).xyz;
+
+	direction = mul(_CameraToWorld, float4(direction, 0.0f)).xyz;
+	direction = normalize(direction);
+
+	return CreateRay(origin, direction);
+}
+
+
+float3 EstimateNormal(float3 p) {
+	float3 normal = float3(
+		SceneSDF(float3(p.x + _SurfaceDistance, p.y, p.z)) - SceneSDF(float3(p.x - _SurfaceDistance, p.y, p.z)),
+		SceneSDF(float3(p.x, p.y + _SurfaceDistance, p.z)) - SceneSDF(float3(p.x, p.y - _SurfaceDistance, p.z)),
+		SceneSDF(float3(p.x, p.y, p.z + _SurfaceDistance)) - SceneSDF(float3(p.x, p.y, p.z - _SurfaceDistance))
+		);
+
+	return normalize(normal);
+}
+
+float RayMarch(Ray ray, inout RayHit bestHit) {
+	float depth = 0;
+
+	for (int i = 0; i < _MaxMarchingSteps; i++) {
+		float3 marchOrigin = ray.origin + (depth * ray.direction);
+
+		float dist = SceneSDF(marchOrigin);
+
+		depth += dist;
+
+		if (dist < _SurfaceDistance || depth > _MaxDistance) {
+			bestHit.distance = depth;
+			bestHit.position = ray.origin + depth * ray.direction;
+			bestHit.normal = EstimateNormal(bestHit.position);
+			bestHit.albedo = _Albedo;
+			bestHit.specular = float3(_Specular, _Specular, _Specular);
+
+			break;
+		}
+	}
+
+	return depth;
+}
+
+float2 GetPixelCoords(uint2 id)
+{
+	uint width;
+	uint height;
+
+	Result.GetDimensions(width, height);
+
+	return float2((id.xy + float2(0.5f, 0.5f)) / float2(width, height) * 2.0f - 1.0f);
+}
+
+RayHit Trace(Ray ray) {
+	RayHit bestHit = CreateHit();
+	
+	RayMarch(ray, bestHit);	
+
+	return bestHit;
+}
+
+float SoftShadow(Ray ray, float k)
+{
+	float res = 1.0f;
+	float ph = 1e20;
+	float t = _MinDistance;
+	while(t < _MaxDistance)
+	{
+		float h = SceneSDF(ray.origin + ray.direction * t);
+		if (h < _SurfaceDistance) {
+			return 0.0;
+		}
+		float y = h * h / (2.0f*ph);
+		float d = sqrt(h*h - y*y);
+		res = min(res, k*d / max(0.0, t - y));
+		ph = h;
+		t += h;
+	}
+	return res;
+}
+
+float3 Shade(inout Ray ray, RayHit hit) {
+	if (hit.distance < _MaxDistance) {
+		ray.origin = hit.position + hit.normal * 0.001f;
+		ray.direction = reflect(ray.direction, hit.normal);
+		ray.energy *= hit.specular;
+		
+		bool shadow = false;
+		Ray shadowRay = CreateRay(hit.position + hit.normal * 0.001f, -1 * _DirectionalLight.xyz);
+		
+		return saturate(dot(hit.normal, _DirectionalLight.xyz) * -1) * (_DirectionalLight.w) * hit.albedo * SoftShadow(shadowRay, _SoftShadowStrength);
+	}
+	else {
+		ray.energy = 0;
+
+		float theta = acos(ray.direction.y) / -PI;
+		float phi = atan2(ray.direction.x, -ray.direction.z) / -PI * 0.5f;
+		return _SkyboxTexture.SampleLevel(sampler_SkyboxTexture, float2(phi, theta), 0).xyz * 0.5f;
+	}
+}
+
+[numthreads(8, 8, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+	float2 pixelCoords = GetPixelCoords(id.xy);
+	Ray ray = CreateCameraRay(pixelCoords);
+
+	/*float dist = RayMarch(ray);
+
+	
+	if (dist < _MaxDistance) {		
+		float3 n = EstimateNormal(ray.origin + ray.direction * dist);
+		float3 color = (n.xyz + 1.0f) / 2.0f;
+
+		Result[id.xy] = float4(color.x, color.y, color.z, 1);
+	}
+	else {
+		Result[id.xy] = float4(0, 0, 0, 0);
+	}
+	*/
+
+	float3 result = float3(0, 0, 0);
+	for (int i = 0; i < 3; i++) {
+		RayHit hit = Trace(ray);
+		result += ray.energy * Shade(ray, hit);
+
+		if (ray.energy.x + ray.energy.y + ray.energy.z <= 0) break;
+	}
+
+	Result[id.xy] = float4(result.xyz, 1);
+}
