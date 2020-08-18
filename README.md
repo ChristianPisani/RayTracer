@@ -4,6 +4,8 @@ Done with compute shaders in Unity.
 
 Skyboxes need to be imported from asset store for this to work properly.
 
+![Example image](/Example.png "Example image")
+
 ### Assets used:
 * https://assetstore.unity.com/packages/2d/textures-materials/sky/skybox-series-free-103633
 * https://assetstore.unity.com/packages/2d/textures-materials/sky/10-skyboxes-pack-day-night-32236
