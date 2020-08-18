@@ -60,6 +60,7 @@ public class RayMarchingMaster : MonoBehaviour {
 
         RayMarchingShader.SetFloat("_Specular", Specular);
         RayMarchingShader.SetVector("_Albedo", new Vector3(Albedo.r, Albedo.g, Albedo.b));
+        RayMarchingShader.SetFloat("_Time", Time.time);
     }
 
     private void InitRenderTexture()

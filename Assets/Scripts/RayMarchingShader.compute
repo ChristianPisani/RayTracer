@@ -8,13 +8,15 @@ float4x4 _CameraInverseProjection;
 Texture2D<float4> _SkyboxTexture;
 SamplerState sampler_SkyboxTexture;
 
+float _Time;
+
 static const float PI = 3.14159265f;
 
 static const int _MaxMarchingSteps = 100;
 
 static const float _SurfaceDistance = 0.001f;
-static const float _MinDistance = 0.0f;
-static const float _MaxDistance = 100.0f;
+static const float _MinDistance = 0.1f;
+static const float _MaxDistance = 10.0f;
 
 float4 _DirectionalLight;
 float3 _DirectionalLightColor;
@@ -35,6 +37,7 @@ struct RayHit {
 	float distance;
 	float3 specular;
 	float3 albedo;
+	float stepsTaken;
 };
 
 struct Sphere {
@@ -56,6 +59,37 @@ float BoxSDF(float3 p)
 	return length(max(q, 0.0f)) + min(max(q.x, max(q.y, q.z)), 0.0);
 }
 
+float MandelBulb(float3 pos) {
+	int Iterations = 120;
+	float Bailout = 10.0f;
+	float Power = 3.0f + 4.0f*(sin(_Time / 10.0f) + 1.0f);
+
+	float3 z = pos;
+	float dr = 1.0f;
+	float r = 0.0f;
+	for (int i = 0; i < Iterations; i++) {
+		r = length(z);
+		if (r > Bailout) break;
+
+		// convert to polar coordinates
+		float theta = acos(z.z / r);
+		float phi = atan2(z.y, z.x);
+		dr = pow(r, Power - 1.0)*Power*dr + 1.0;
+
+		// scale and rotate the point
+		float zr = pow(r, Power);
+		theta = theta * Power;
+		phi = phi * Power;
+
+		// convert back to cartesian coordinates
+		z = zr * float3(sin(theta)*cos(phi), sin(phi)*sin(theta), cos(theta));
+		z += pos;
+	}
+
+	if (dr == 0) dr = 0.01f;
+
+	return 0.5*log(r)*r / dr;
+}
 
 float BoundingBoxSDF(float3 p)
 {
@@ -90,9 +124,9 @@ float SceneSDF(float3 p) {
 
 	float sdf = SphereSDF(p, sphere);
 
-	for (int x = 0; x < 4; x++) {
-		for (int y = 0; y < 2; y++) {
-			for (int z = 0; z < 4; z++) {
+	for (int x = 0; x < 3; x++) {
+		for (int y = 0; y < 3; y++) {
+			for (int z = 0; z < 3; z++) {
 				sphere.position = float3(x * sphereDist, y * sphereDist, z * sphereDist);
 
 				sdf = unionSDF(sdf, SphereSDF(p, sphere));
@@ -100,7 +134,7 @@ float SceneSDF(float3 p) {
 		}
 	}
 
-	return unionSDF(sdf, BoxSDF(p));
+	return MandelBulb(p);
 }
 
 Ray CreateRay(float3 origin, float3 direction) {
@@ -120,6 +154,7 @@ RayHit CreateHit() {
 	hit.normal = float3(0, 0, 0);
 	hit.albedo = float3(0, 0, 0);
 	hit.specular = float3(0, 0, 0);
+	hit.stepsTaken = 0;
 	return hit;
 }
 
@@ -157,6 +192,7 @@ float RayMarch(Ray ray, inout RayHit bestHit) {
 
 		if (dist < _SurfaceDistance || depth > _MaxDistance) {
 			bestHit.distance = depth;
+			bestHit.stepsTaken = i;
 			bestHit.position = ray.origin + depth * ray.direction;
 			bestHit.normal = EstimateNormal(bestHit.position);
 			bestHit.albedo = _Albedo;
@@ -212,18 +248,28 @@ float3 Shade(inout Ray ray, RayHit hit) {
 		ray.origin = hit.position + hit.normal * 0.001f;
 		ray.direction = reflect(ray.direction, hit.normal);
 		ray.energy *= hit.specular;
-		
+
 		bool shadow = false;
 		Ray shadowRay = CreateRay(hit.position + hit.normal * 0.001f, -1 * _DirectionalLight.xyz);
 		
-		return saturate(dot(hit.normal, _DirectionalLight.xyz) * -1) * (_DirectionalLight.w) * hit.albedo * SoftShadow(shadowRay, _SoftShadowStrength);
-	}
+		RayHit shadowHit = Trace(shadowRay);
+		if (shadowHit.distance < _MaxDistance) {
+			return float3(0,0,0);
+		}
+		
+		// Don't use soft shadows with mandelbuld...
+		//return saturate(dot(hit.normal, _DirectionalLight.xyz) * -1) * (_DirectionalLight.w) * hit.albedo * SoftShadow(ray);
+		
+		return saturate(dot(hit.normal, _DirectionalLight.xyz) * -1) * (_DirectionalLight.w) * hit.albedo * hit.normal;
+	} 
 	else {
+		float3 glow = float3(1, 1, 1) * (hit.stepsTaken / _MaxMarchingSteps) * hit.normal;
+		
 		ray.energy = 0;
 
 		float theta = acos(ray.direction.y) / -PI;
 		float phi = atan2(ray.direction.x, -ray.direction.z) / -PI * 0.5f;
-		return _SkyboxTexture.SampleLevel(sampler_SkyboxTexture, float2(phi, theta), 0).xyz * 0.5f;
+		return _SkyboxTexture.SampleLevel(sampler_SkyboxTexture, float2(phi, theta), 0).xyz * 0.5f + glow;
 	}
 }
 
@@ -248,10 +294,10 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 	*/
 
 	float3 result = float3(0, 0, 0);
-	for (int i = 0; i < 3; i++) {
+	for (int i = 0; i < 2; i++) {
 		RayHit hit = Trace(ray);
 		result += ray.energy * Shade(ray, hit);
-
+		
 		if (ray.energy.x + ray.energy.y + ray.energy.z <= 0) break;
 	}
 
