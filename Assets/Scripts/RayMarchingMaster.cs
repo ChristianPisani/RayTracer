@@ -13,6 +13,15 @@ public class RayMarchingMaster : MonoBehaviour {
     [Range(0, 1)]
     public float Specular = 0.1f;
 
+    [Range(0, 2f)]
+    public float GlowStrength = 1f;
+    [Range(0, 200)]
+    public int GlowCutoff = 0;
+    public Color GlowColor = Color.magenta;
+
+    [Range(0.0001f, 1f)]
+    public float SurfaceDistance = 0.001f;
+
     public Color Albedo = Color.gray;
 
     private RenderTexture _target;
@@ -61,6 +70,11 @@ public class RayMarchingMaster : MonoBehaviour {
         RayMarchingShader.SetFloat("_Specular", Specular);
         RayMarchingShader.SetVector("_Albedo", new Vector3(Albedo.r, Albedo.g, Albedo.b));
         RayMarchingShader.SetFloat("_Time", Time.time);
+
+        RayMarchingShader.SetVector("_GlowColor", new Vector3(GlowColor.r, GlowColor.g, GlowColor.b));
+        RayMarchingShader.SetFloat("_GlowStrength", GlowStrength);
+        RayMarchingShader.SetInt("_GlowCutoff", GlowCutoff);
+        RayMarchingShader.SetFloat("_SurfaceDistance", SurfaceDistance);
     }
 
     private void InitRenderTexture()

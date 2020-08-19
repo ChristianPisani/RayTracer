@@ -316,7 +316,7 @@ MonoBehaviour:
   SkyboxTexture: {fileID: 2800000, guid: 8967f190ed29c46418093a47d66daee8, type: 3}
   DirectionalLight: {fileID: 1298949817}
   SoftShadowStrength: 2
-  Specular: 0.1
+  Specular: 0
   Albedo: {r: 0.5, g: 0.5, b: 0.5, a: 1}
 --- !u!114 &1712518884
 MonoBehaviour:

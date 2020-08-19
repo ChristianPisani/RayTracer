@@ -14,9 +14,10 @@ static const float PI = 3.14159265f;
 
 static const int _MaxMarchingSteps = 100;
 
-static const float _SurfaceDistance = 0.001f;
-static const float _MinDistance = 0.1f;
-static const float _MaxDistance = 10.0f;
+float _SurfaceDistance = 0.001f;
+
+static const float _MinDistance = 0.0f;
+static const float _MaxDistance = 100.0f;
 
 float4 _DirectionalLight;
 float3 _DirectionalLightColor;
@@ -24,6 +25,10 @@ float _SoftShadowStrength;
 
 float3 _Albedo;
 float _Specular;
+
+float3 _GlowColor;
+float _GlowStrength;
+int _GlowCutoff;
 
 struct Ray {
 	float3 origin;
@@ -38,6 +43,7 @@ struct RayHit {
 	float3 specular;
 	float3 albedo;
 	float stepsTaken;
+	float softShadowStrength;
 };
 
 struct Sphere {
@@ -52,15 +58,15 @@ float SphereSDF(float3 position, Sphere sphere) {
 }
 
 float BoxSDF(float3 p)
-{
-	float3 b = float3(10, 2, 10);
+{	
+	float3 b = float3(10.5f, 0.5f, 10.5f);
 
 	float3 q = abs(p) - b;
 	return length(max(q, 0.0f)) + min(max(q.x, max(q.y, q.z)), 0.0);
 }
 
 float MandelBulb(float3 pos) {
-	int Iterations = 120;
+	int Iterations = 16;
 	float Bailout = 10.0f;
 	float Power = 3.0f + 4.0f*(sin(_Time / 10.0f) + 1.0f);
 
@@ -93,7 +99,7 @@ float MandelBulb(float3 pos) {
 
 float BoundingBoxSDF(float3 p)
 {
-	float3 b = float3(2, 2, 4);
+	float3 b = float3(1, 1, 1);
 	float e = 0.1f;
 
 	p = abs(p) - b;
@@ -118,23 +124,13 @@ float differenceSDF(float distA, float distB) {
 
 float SceneSDF(float3 p) {
 	Sphere sphere;
-	float sphereDist = 3;
-	sphere.position = float3(0, 0, 0);
-	sphere.radius = 1;
+	sphere.radius = 0.85f;
+	sphere.position = float3(0, 1, 0);
 
-	float sdf = SphereSDF(p, sphere);
-
-	for (int x = 0; x < 3; x++) {
-		for (int y = 0; y < 3; y++) {
-			for (int z = 0; z < 3; z++) {
-				sphere.position = float3(x * sphereDist, y * sphereDist, z * sphereDist);
-
-				sdf = unionSDF(sdf, SphereSDF(p, sphere));
-			}
-		}
-	}
+	float3 pMod = float3(sin(p.x), p.y, p.z);
 
 	return MandelBulb(p);
+	//return unionSDF(BoxSDF(pMod), SphereSDF(pMod, sphere));
 }
 
 Ray CreateRay(float3 origin, float3 direction) {
@@ -155,6 +151,7 @@ RayHit CreateHit() {
 	hit.albedo = float3(0, 0, 0);
 	hit.specular = float3(0, 0, 0);
 	hit.stepsTaken = 0;
+	hit.softShadowStrength = 0;
 	return hit;
 }
 
@@ -187,9 +184,7 @@ float RayMarch(Ray ray, inout RayHit bestHit) {
 		float3 marchOrigin = ray.origin + (depth * ray.direction);
 
 		float dist = SceneSDF(marchOrigin);
-
-		depth += dist;
-
+		
 		if (dist < _SurfaceDistance || depth > _MaxDistance) {
 			bestHit.distance = depth;
 			bestHit.stepsTaken = i;
@@ -200,6 +195,43 @@ float RayMarch(Ray ray, inout RayHit bestHit) {
 
 			break;
 		}
+		
+		depth += dist;
+	}
+
+	return depth;
+}
+
+float ShadowRayMarch(Ray ray, inout RayHit bestHit) {
+	float depth = 0;
+	float res = 1.#INF;
+	float ph = 1e20;
+	float k = _SoftShadowStrength;
+
+	for (int i = 0; i < _MaxMarchingSteps; i++) {
+		float3 marchOrigin = ray.origin + (depth * ray.direction);
+
+		float dist = SceneSDF(marchOrigin);
+
+		if (dist < _SurfaceDistance || depth > _MaxDistance) {
+			bestHit.distance = depth;
+			bestHit.stepsTaken = i;
+			bestHit.softShadowStrength = res;
+			
+			if (dist < _SurfaceDistance) {
+				bestHit.softShadowStrength = 0;
+			}
+			
+			break;
+		}
+		else {
+			// Shadow calc
+			float y = dist * dist / (2.0f*ph);
+			float d = sqrt(dist * dist - y * y);
+			res = min(res, _SoftShadowStrength * d / max(0.00001f, depth - y));
+		}
+
+		depth += dist;
 	}
 
 	return depth;
@@ -223,27 +255,21 @@ RayHit Trace(Ray ray) {
 	return bestHit;
 }
 
-float SoftShadow(Ray ray, float k)
-{
-	float res = 1.0f;
-	float ph = 1e20;
-	float t = _MinDistance;
-	while(t < _MaxDistance)
-	{
-		float h = SceneSDF(ray.origin + ray.direction * t);
-		if (h < _SurfaceDistance) {
-			return 0.0;
-		}
-		float y = h * h / (2.0f*ph);
-		float d = sqrt(h*h - y*y);
-		res = min(res, k*d / max(0.0, t - y));
-		ph = h;
-		t += h;
-	}
-	return res;
+RayHit ShadowTrace(Ray ray) {
+	RayHit bestHit = CreateHit();
+
+	ShadowRayMarch(ray, bestHit);
+
+	return bestHit;
 }
 
 float3 Shade(inout Ray ray, RayHit hit) {
+	float3 glow = _GlowColor * (hit.stepsTaken / _MaxMarchingSteps) * _GlowStrength;
+
+	if (hit.stepsTaken < _GlowCutoff) {
+		glow = float3(0, 0, 0);
+	}
+
 	if (hit.distance < _MaxDistance) {
 		ray.origin = hit.position + hit.normal * 0.001f;
 		ray.direction = reflect(ray.direction, hit.normal);
@@ -252,19 +278,11 @@ float3 Shade(inout Ray ray, RayHit hit) {
 		bool shadow = false;
 		Ray shadowRay = CreateRay(hit.position + hit.normal * 0.001f, -1 * _DirectionalLight.xyz);
 		
-		RayHit shadowHit = Trace(shadowRay);
-		if (shadowHit.distance < _MaxDistance) {
-			return float3(0,0,0);
-		}
+		RayHit shadowHit = ShadowTrace(shadowRay);
 		
-		// Don't use soft shadows with mandelbuld...
-		//return saturate(dot(hit.normal, _DirectionalLight.xyz) * -1) * (_DirectionalLight.w) * hit.albedo * SoftShadow(ray);
-		
-		return saturate(dot(hit.normal, _DirectionalLight.xyz) * -1) * (_DirectionalLight.w) * hit.albedo * hit.normal;
+		return saturate(dot(hit.normal, _DirectionalLight.xyz) * -1) * (_DirectionalLight.w) * hit.albedo * shadowHit.softShadowStrength + glow;
 	} 
 	else {
-		float3 glow = float3(1, 1, 1) * (hit.stepsTaken / _MaxMarchingSteps) * hit.normal;
-		
 		ray.energy = 0;
 
 		float theta = acos(ray.direction.y) / -PI;
@@ -294,7 +312,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 	*/
 
 	float3 result = float3(0, 0, 0);
-	for (int i = 0; i < 2; i++) {
+	for (int i = 0; i < 8; i++) {
 		RayHit hit = Trace(ray);
 		result += ray.energy * Shade(ray, hit);
 		
