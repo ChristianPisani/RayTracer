@@ -23,3 +23,7 @@ Skyboxes need to be imported from asset store for this to work properly.
 * https://www.iquilezles.org/www/articles/smin/smin.htm
 * https://www.youtube.com/watch?v=S8AWd66hoCo
 * https://dev.to/javiersalcedopuyo/ray-marching-in-unity-2kno
+* https://adrianb.io/2016/10/01/raymarching.html
+* https://medium.com/@si.ashbery/raymarching-3cdf86c637ba
+* http://blog.hvidtfeldts.net/index.php/2011/09/distance-estimated-3d-fractals-v-the-mandelbulb-different-de-approximations/
+* http://celarek.at/wp/wp-content/uploads/2014/05/realTimeFractalsReport.pdf
