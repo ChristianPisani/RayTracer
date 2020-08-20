@@ -27,3 +27,4 @@ Skyboxes need to be imported from asset store for this to work properly.
 * https://medium.com/@si.ashbery/raymarching-3cdf86c637ba
 * http://blog.hvidtfeldts.net/index.php/2011/09/distance-estimated-3d-fractals-v-the-mandelbulb-different-de-approximations/
 * http://celarek.at/wp/wp-content/uploads/2014/05/realTimeFractalsReport.pdf
+* http://alexsimes.com/sphere-tracing-distance-fields-and-fractals.pdf

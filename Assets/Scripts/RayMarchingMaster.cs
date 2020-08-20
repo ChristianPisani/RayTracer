@@ -12,6 +12,8 @@ public class RayMarchingMaster : MonoBehaviour {
 
     [Range(0, 1)]
     public float Specular = 0.1f;
+    [Range(0, 5)]
+    public int Bounces = 3;
 
     [Range(0, 2f)]
     public float GlowStrength = 1f;
@@ -19,10 +21,15 @@ public class RayMarchingMaster : MonoBehaviour {
     public int GlowCutoff = 0;
     public Color GlowColor = Color.magenta;
 
-    [Range(0.0001f, 1f)]
+    [Range(1e-5f, 1f)]
     public float SurfaceDistance = 0.001f;
 
     public Color Albedo = Color.gray;
+
+
+    public float DofSmoothness = 25;
+    public float DofRange = 0.1f;
+    public float DofRadius = 0.3f;
 
     private RenderTexture _target;
     private Camera _camera;
@@ -67,6 +74,7 @@ public class RayMarchingMaster : MonoBehaviour {
         RayMarchingShader.SetVector("_DirectionalLightColor", new Vector3(lc.r / 255f, lc.g / 255f, lc.b / 255f));
         RayMarchingShader.SetFloat("_SoftShadowStrength", SoftShadowStrength);
 
+        RayMarchingShader.SetInt("_Bounces", Bounces);
         RayMarchingShader.SetFloat("_Specular", Specular);
         RayMarchingShader.SetVector("_Albedo", new Vector3(Albedo.r, Albedo.g, Albedo.b));
         RayMarchingShader.SetFloat("_Time", Time.time);
@@ -75,6 +83,10 @@ public class RayMarchingMaster : MonoBehaviour {
         RayMarchingShader.SetFloat("_GlowStrength", GlowStrength);
         RayMarchingShader.SetInt("_GlowCutoff", GlowCutoff);
         RayMarchingShader.SetFloat("_SurfaceDistance", SurfaceDistance);
+
+        RayMarchingShader.SetFloat("_DofSmoothness", DofSmoothness);
+        RayMarchingShader.SetFloat("_DofRadius", DofRadius);
+        RayMarchingShader.SetFloat("_DofRange", DofRange);
     }
 
     private void InitRenderTexture()

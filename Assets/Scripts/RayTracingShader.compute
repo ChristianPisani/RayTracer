@@ -32,7 +32,6 @@ float4x4 _CameraInverseProjection;
 float4 _DirectionalLight;
 float3 _DirectionalLightColor;
 
-
 Ray CreateRay(float3 origin, float3 direction) {
 	Ray ray;
 	ray.origin = origin;
