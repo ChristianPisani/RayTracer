@@ -179,20 +179,10 @@ float differenceSDF(float distA, float distB) {
 	return max(distA, -distB);
 }
 
-float SceneSDF(float3 p) {
-	Sphere sphere;
-	sphere.radius = 0.85f;
-	sphere.position = float3(0, 1, 0);
-
-	float3 pMod = float3(sin(p.x), p.y, p.z);
-
-	//return TetraHedron(p);
-	//return MandelBulb(p);
-
-	
+float SceneSDF(float3 p) {	
 	float sdf;
 	
-	sdf = MandelBox(p);
+	sdf = MandelBulb(p);
 
 	return sdf;
 }
@@ -346,7 +336,7 @@ float3 Shade(inout Ray ray, RayHit hit) {
 		
 		RayHit shadowHit = ShadowTrace(shadowRay);
 
-		return saturate(dot(hit.normal, _DirectionalLight.xyz) * -1) * (_DirectionalLight.w) * hit.albedo * shadowHit.softShadowStrength;
+		return saturate(dot(hit.normal, _DirectionalLight.xyz) * -1) * (_DirectionalLight.w) * hit.albedo * hit.normal * shadowHit.softShadowStrength;
 	}
 	else {
 		ray.energy = 0;
